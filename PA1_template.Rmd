@@ -1,0 +1,273 @@
+---
+output:
+  html_document:
+    keep_md: yes
+---
+
+##Assignment 1, Reproducible research
+
+This assignment makes use of data from a personal activity monitoring device.  
+This device collects data at 5 minute intervals through out the day. The data  
+consists of two months of data from an anonymous individual collected during the  
+months of October and November 2012, and include the number of steps taken in  
+5 minute intervals each day.
+
+####Dataset:
+Activity monitoring data [52K]  
+**The variables included in this dataset are:**  
+1. steps: Number of steps taking in a 5-minute interval  
+2. date: The date on which the measurement was taken in YYYY-MM-DD format  
+3. interval: Identifier for the 5-minute interval in which measurement was taken  
+
+The dataset is stored in a comma-separated-value (CSV) file and there are a total  
+of 17,568 observations in this dataset.
+
+###Loading and preprocessing the data
+
+**This section should hold code that is needed to:**  
+1. Load the data  
+2. Process the data into a suitable format
+
+####Loading the data
+Note, that setting up a working directory and a directory for where the data is  
+stored is user specific and you might need to change this code lines to your own  
+specifications.
+Loading the data into an r object is a straight forward operation, with the data  
+loaded into a data frame named *activity*, as shown below:
+
+```{r dataload, echo = TRUE}
+    setwd("~/Data Science/4. Reproducible/Code/Week 2")
+    fileURL <- "http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+    download.file(fileURL, destfile="ActivityData.zip", quiet=TRUE)
+    unzip("ActivityData.zip")
+    activity <- read.csv("activity.csv")
+```
+
+####Process the data into a suitable format
+To get a feel for what we need to do, we analyze the structure and the summary  
+of the data, while also taking a look at the first 15 observations:
+
+```{r datacheck, echo = TRUE}
+    str(activity)
+    summary(activity)
+    head(activity, n=15)
+```
+
+**We can see that:**  
+1. The *steps* variable includes quite a few NA values  
+2. The *date* variable is a factor and not a date  
+3. The *interval* increases with a factor 100 for every hour
+
+For now, we leave things unchanged, and conclude the data is formated ok for the  
+next step in the assignment list.  
+One reason for why we leave the data unchanged is that the next part of the  
+assignment explicitly states we can ignore the missing values in the dataset.
+
+###Mean total number of steps taken per day
+**For this part of the assignment, we should:**  
+1. Calculate and make a histogram of the total number of steps taken each day  
+2. Calculate and the mean and median of the total number of steps taken per day
+  
+####Total number of all steps each day
+
+```{r dailysteps, echo = TRUE}
+    daysteps <- with(activity, tapply(steps, date, sum, na.rm=TRUE))
+    daysteps <- data.frame(daysteps)
+    days <- as.Date(row.names(daysteps), format = "%Y-%m-%d")
+    dailysteps <- cbind(days, daysteps)
+```
+
+####Histogram of daily steps
+
+```{r dailyhistogram, echo = TRUE}
+    library(ggplot2)
+    graph <- ggplot(dailysteps, aes(x=daysteps)) 
+    graph <- graph + geom_histogram(binwidth=1500)
+    graph <- graph + labs(title="Steps per day during Oct 01 2012 - Nov 30 2012")
+    graph <- graph + labs(x="Steps", y="Days")
+    graph
+```
+
+The mean and median of total number of steps taken per day:
+
+```{r meanmedian, echo = TRUE}
+    with(dailysteps, mean(daysteps, na.rm=TRUE))
+    with(dailysteps, median(daysteps, na.rm=TRUE))
+```
+
+###Examine the average daily activity pattern
+**For this part of the assignment, we should:**  
+1. Make a time series plot of the 5-minute interval and the average number of  
+steps taken, averaged across all days  
+2. Examine which 5-minute interval, on average across all the days in the dataset,  
+contains the maximum number of steps
+
+####Make a time series plot
+To calculate the average number of steps taken for each 5-minute interval:
+
+```{r intervalsteps, echo = TRUE}
+    intsteps <- with(activity, tapply(steps, interval, mean, na.rm=TRUE))
+    intsteps <- data.frame(intsteps)
+    intervals <- row.names(intsteps)
+    for(i in 1:length(intervals))   {
+        while(nchar(intervals[i]) < 4)  {
+            intervals[i] <- paste("0", intervals[i], sep="")
+        }
+    }
+    intervalsteps <- cbind(intervals, intsteps)
+```
+
+Creating the timeseries plot:
+
+```{r timeseries, echo = TRUE}
+    library(ggplot2)
+    graph <- ggplot(intervalsteps, aes(x=intervals, y=intsteps, group=1))
+    graph <- graph + geom_line()
+    graph <- graph + labs(title="Average steps for 5-minute intervals, Oct 01 2012 - Nov 30 2012")
+    graph <- graph + labs(x="Interval end times", y="Average steps")
+    #graph <- graph + theme(axis.text.x=element_text(angle=90))
+    xlabels <- as.character(intervalsteps$intervals[row=seq(1,288, by=36)])
+    graph <- graph + scale_x_discrete(breaks=xlabels)
+    graph
+```
+
+####Interval with most steps
+
+```{r maxinterval, echo = TRUE}
+    maxsteps <- max(intervalsteps$intsteps)
+    as.character(with(intervalsteps, intervals[intsteps == maxsteps]))
+    print(maxsteps)
+```
+
+###Imputing missing values
+**For this part of the assignment, we should:**  
+1. Report the total number of missing values in the dataset (NAs)  
+2. Fill in missing values according to personal strategy  
+3. Create a new dataset with the missing data filled in  
+4. Make a histogram of the total number of steps taken each day and  
+- report the mean and median total number of steps taken per day  
+- evaluate how they differ from the estimates from the first part of the assignment
+
+####Report missing values
+We already know from the summary above there is 2304 missing values, but to repeat:
+
+```{r missingvalues, echo = TRUE}
+    summary(activity)
+```
+
+####Fill in missing values and create new dataset
+The strategy for filling in the missing values will be that we use the average  
+number of steps for all days for any specific time interval.  
+So, every NA value in the original *steps* variable in the data frame *activity*  
+will be substituted with its corresponding average value for all days. The values  
+will be stored in the new data frame *newactivity*, which is merged with  
+*intervalsteps*, previously created.
+
+```{r fillmissing, echo = TRUE}
+    newactivity <- cbind(subset(activity, select=c(steps, date)), intervals)
+    newactivity <- merge(x=newactivity, y=intervalsteps, by.x="intervals", by.y="intervals")
+    newactivity <- newactivity[order(newactivity$date, newactivity$intervals),]
+    for (i in 1:length(newactivity$steps))  {
+        if (is.na(newactivity$steps[i])) {
+            newactivity$steps[i] <- newactivity$intsteps[i]
+        }
+    }
+    newactivity <- subset(newactivity, select=c(steps, date, intervals))
+```
+
+Make a new check to verify everything is a-ok:
+
+```{r newcheck, echo = TRUE}
+    str(newactivity)
+    summary(newactivity)
+    head(newactivity, n=15)
+```
+
+No NAs or other misshaps to be found here
+
+####New histogram ot total steps each day
+For starters we need to recalculate the total number of all steps each day:
+
+```{r newdailysteps, echo = TRUE}
+    newsteps <- with(newactivity, tapply(steps, date, sum, na.rm=TRUE))
+    newsteps <- data.frame(newsteps)
+    newdays <- as.Date(row.names(newsteps), format = "%Y-%m-%d")
+    newdailysteps <- cbind(newdays, newsteps)
+```
+
+Then we can recreate the histogram:
+
+```{r newhistogram, echo = TRUE}
+    library(ggplot2)
+    graph <- ggplot(newdailysteps, aes(x=newsteps)) 
+    graph <- graph + geom_histogram(binwidth=1500)
+    graph <- graph + labs(title="Revised: Steps per day during Oct 01 2012 - Nov 30 2012")
+    graph <- graph + labs(x="Steps", y="Days")
+    graph
+```
+
+... and repeat the mean and median calculations:
+
+```{r newmeanmedian, echo = TRUE}
+    with(newdailysteps, mean(newsteps, na.rm=TRUE))
+    with(newdailysteps, median(newsteps, na.rm=TRUE))
+```
+
+Both the mean and the median increased, to the extent that they both come out to  
+the exact same value, which is a very interesting coincidence.  
+This is a good indication the length of the daily walks follow a Gaussian distribution.  
+Something that could not be detected as clearly from the orignial data.  
+So the fact that this can be detected is an important impact of imputing missing  
+data on the estimates of the total daily number of steps.
+
+###Differences in weekend activity patterns
+**For this section we should:**  
+1. Create a new factor variable in the dataset with two levels, "weekday" and "weekend"  
+2. Make a 2-panel plot containing a time series plot of the 5-minute interval and  
+the average number of steps taken, averaged across all weekday days or weekend days
+
+####Create a new factor variable
+```{r createfactor, echo = TRUE}
+    newactivity$daytype <- weekdays(as.Date(newactivity$date)) %in% c("Sunday","Saturday")
+    newactivity$daytype <- factor(newactivity$daytype, levels=c(TRUE, FALSE), labels=c("weekend", "weekday"))
+```
+
+####Make a 2-panel plot
+But first create a new data frame holding the average steps per time interval,  
+subdivided into weekdays and weekends, and constructed so it fits with ggplot  
+functionality:
+
+```{r dividedsteps, echo = TRUE}
+    splitactivity <- split(newactivity, newactivity$daytype)
+
+    weekendsteps <- with(splitactivity$weekend, tapply(steps, intervals, mean, na.rm=TRUE))
+    weekendsteps <- cbind(intervals, weekendsteps, "weekend")
+
+    weekdaysteps <- with(splitactivity$weekday, tapply(steps, intervals, mean, na.rm=TRUE))
+    weekdaysteps <- cbind(intervals, weekdaysteps, "weekday")
+
+    dividedsteps <- rbind(weekdaysteps, weekendsteps)
+    dividedsteps <- data.frame(dividedsteps, row.names=NULL)
+    names(dividedsteps) <- c("intervals", "steps", "daytype")
+    dividedsteps$steps <- as.numeric(dividedsteps$steps)
+```
+
+Create the 2-panel plot:
+
+```{r panelplot, echo = TRUE}
+    library(ggplot2)
+    graph <- ggplot(dividedsteps, aes(x=intervals, y=steps, group=daytype)) 
+    graph <- graph + geom_line() + facet_grid(.~ daytype)
+    graph <- graph + labs(title="Average steps for 5-minute intervals, Oct 01 2012 - Nov 30 2012")
+    graph <- graph + labs(x="Interval end times", y="Average steps")
+    xlabels <- as.character(dividedsteps$intervals[row=seq(1,288, by=36)])
+    graph <- graph + scale_x_discrete(breaks=xlabels)
+    graph
+```
+
+
+The subject seems to walk more in the weekends during late nights and early mornings  
+(before 6am) and also during midday and afternoons.  
+The subject seems to walk less in the weekends during mid mornings (7-10am).
+
+**This concludes this assignment.**
